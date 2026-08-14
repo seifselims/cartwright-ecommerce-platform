@@ -1,0 +1,29 @@
+# Dev-only overlay: publishes every backing service to the host so `next dev`
+# can run outside Docker. None of these mappings may appear in the prod file —
+# an exposed 5432 on a public VPS is scanned within hours.
+services:
+  postgres:
+    ports:
+      - "5432:5432"
+
+  redis:
+    ports:
+      - "6379:6379"
+
+  redis-queue:
+    ports:
+      - "6380:6379"
+
+  meilisearch:
+    ports:
+      - "7700:7700"
+
+  minio:
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+
+  mailpit:
+    ports:
+      - "1025:1025"
+      - "8025:8025"
