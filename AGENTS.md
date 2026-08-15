@@ -86,12 +86,36 @@ Phase 1 (Data & seed) is next. What exists today:
   Meilisearch, Sharp, AWS S3 SDK, Zod). Of the test tooling, **Vitest is configured**; Playwright,
   Testcontainers and axe-core are installed but not yet configured or used.
 
-Not yet started: the cache abstraction and key registry from §6, the scoped data-access layer from
-§5.4, seed data, and every route beyond the scaffold page and the two health endpoints.
+- **`make seed` works** (`src/db/seed/`). It rebuilds the demo dataset in ~23 s: 8 vendors, 500
+  products, ~1,500 variants, 50k orders, ~76k sub-orders and ~206k ledger entries. Deterministic —
+  every draw comes from a seeded mulberry32 in `random.ts`, so a given `SEED` always rebuilds the
+  identical database and a bug one machine sees reproduces on another. It **truncates and
+  rebuilds** rather than upserting, deliberately: an upserting seeder drifts from what a fresh
+  `make up` produces. Four things in it are load-bearing rather than decorative:
+  - `split.ts` implements the §8.3 step 7 per-vendor money split and asserts step 11 before
+    returning. **Phase 6 checkout should import it, not reimplement it** — two definitions of the
+    split is how a ledger stops reconciling. Commission excludes shipping; a platform discount is
+    apportioned pro-rata with the largest-subtotal vendor absorbing the remainder.
+  - Every paid sub-order writes the **three signed ledger rows** §8.3 requires (sale, shipping,
+    negative commission), never one net row, so `make reconcile` has real arithmetic to check.
+  - The two fixtures the phase-1 bar names are planted, not hoped for: SKU `NG-SHARED-01` is
+    carried by two vendors (proving `product_variants` is unique on `(vendor_id, sku)`, not on
+    `sku`), and four categories span multiple vendors.
+  - Status fixtures: one vendor is `pending` and one `suspended`, both with `charges_enabled =
+    false` and zero orders, which is the data §11.3 test 24 needs. One person is a member of two
+    vendors — the row that is unrepresentable if membership ever collapses onto `user`.
+  - Seeded accounts are loggable-in: passwords go through Better Auth's own `hashPassword`, so
+    `owner@<vendor-slug>.test` / `admin@northgatesupply.test` work with `SEED_PASSWORD`
+    (`password123` by default).
 
-Phase 1's acceptance bar is `make seed` populating a browsable multi-vendor database — 8 vendors,
-500 products, 1,500 variants, 50k orders — with duplicate-SKU and overlapping-category fixtures,
-plus the §5.4 scoped data-access layer.
+Not yet started: the cache abstraction and key registry from §6, the scoped data-access layer from
+§5.4, and every route beyond the scaffold page and the two health endpoints.
+
+**Phase 1 is therefore half done.** `make seed` clears its half of the acceptance bar; the §5.4
+scoped data-access layer is the remaining half. Build it before Phase 2 starts adding `/vendor`
+routes — its cost scales with the number of routes that would need retrofitting, and there are
+currently none. §11.3 test 22 enumerates routes from the router and fails any new one that is not
+scoped, which only works if there is a single chokepoint to enumerate against.
 
 ## Stack and why
 
@@ -147,6 +171,9 @@ app/                 Next.js App Router routes (the scaffold page plus /api/heal
   (admin)/admin/     planned — platform back office
 src/                 All cross-cutting app code — auth.ts, redis.ts
 src/db/              Drizzle client (index.ts) and schema (schema.ts)
+src/db/seed/         `make seed` — index.ts orchestrates; split.ts is the §8.3 money split
+                     (shared with Phase 6 checkout), factories.ts and data.ts build rows,
+                     random.ts is the seeded PRNG that makes the dataset reproducible
 tests/unit/          Vitest unit tests (§11.1). Integration tests get their own config in Phase 1
 docs/                The requirements spec and caching.md / scaling-challenges.md
 docs/adr/            Architecture Decision Records — 0001 multi-vendor, 0002 session staleness
@@ -168,6 +195,7 @@ npm run format                       # prettier --write .
 npm run format:check                 # prettier --check . — the CI gate
 npm test                             # vitest run (unit only)
 npm run test:watch                   # vitest
+npm run db:seed                      # rebuild the demo dataset (make seed wraps this)
 npm run db:push                      # drizzle-kit push — DO NOT USE; migrations exist, this causes drift
 npx drizzle-kit generate             # emit a migration from schema.ts
 npx drizzle-kit migrate              # apply migrations to DATABASE_URL
@@ -177,11 +205,13 @@ npx @better-auth/cli generate        # regenerate the Better Auth tables — do 
 Prettier ignores `docs/` and `*.md` (the spec and the ADRs are hand-wrapped prose that Prettier
 would reflow) and `drizzle/` (reformatting an applied migration changes its bytes).
 
-The `Makefile` has `up`, `down`, `logs`, `ps`, `restart`, `nuke`, `test`, and `check` — where
-`make check` runs the whole CI sequence locally, in CI's order. §12.4 also requires `make seed`,
-`make load` and `make reconcile`; add them as the phases that make them meaningful arrive.
-`make reconcile` asserts that every vendor balance equals its ledger sum and every order's split
-reconciles to the captured amount — it is a definition-of-done item (§17).
+The `Makefile` has `up`, `down`, `logs`, `ps`, `restart`, `nuke`, `seed`, `test`, and `check` —
+where `make check` runs the whole CI sequence locally, in CI's order. §12.4 still wants `make load`
+and `make reconcile`; add them as the phases that make them meaningful arrive. `make reconcile`
+asserts that every vendor balance equals its ledger sum and every order's split reconciles to the
+captured amount — it is a definition-of-done item (§17). The seeder already checks the second half
+of that in-process and fails loudly on a mismatch, so `make reconcile` mostly needs the balance
+half plus refunds and reversals in the dataset.
 
 ## Environment
 
