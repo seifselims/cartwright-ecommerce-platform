@@ -1,0 +1,52 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# A superseded run on the same branch is wasted CI minutes.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # §11.6 requires more gates than this: integration tests on Testcontainers,
+  # Playwright against a compose stack, `docker build`, Trivy, a bundle-size
+  # budget, `make reconcile` and the tenant-isolation test. Each one arrives
+  # with the phase that makes it meaningful; this is the Phase 0 skeleton.
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Format
+        run: npm run format:check
+
+      - name: Unit tests
+        run: npm test
+
+      - name: Build
+        # The build must not reach for a database or Redis; if this step starts
+        # needing a live service, something is connecting at import time
+        # (see the `lazyConnect` note in src/redis.ts).
+        run: npm run build
+        env:
+          DATABASE_URL: postgresql://cartwright:cartwright@localhost:5432/cartwright
+          REDIS_URL: redis://localhost:6379
+          QUEUE_REDIS_URL: redis://localhost:6380
+          BETTER_AUTH_SECRET: ci-placeholder-secret-not-used-at-runtime
+          BETTER_AUTH_URL: http://localhost:3000

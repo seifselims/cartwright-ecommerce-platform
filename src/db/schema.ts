@@ -351,7 +351,10 @@ export const vendorApplications = pgTable(
     proposedName: text("proposed_name").notNull(),
     proposedSlug: text("proposed_slug").notNull(),
     country: char("country", { length: 2 }).notNull(),
-    categories: text("categories").array().notNull().default(sql`'{}'::text[]`),
+    categories: text("categories")
+      .array()
+      .notNull()
+      .default(sql`'{}'::text[]`),
     message: text("message"),
     status: vendorApplicationStatus("status").default("pending").notNull(),
     reviewedByUserId: text("reviewed_by_user_id").references(() => user.id, {
@@ -401,7 +404,10 @@ export const vendorShippingRates = pgTable(
       .on(table.vendorId, table.country, table.name)
       .nullsNotDistinct(),
     index("vendor_shipping_rates_vendor_id_idx").on(table.vendorId),
-    check("vendor_shipping_rates_rate_non_negative", sql`${table.rateCents} >= 0`),
+    check(
+      "vendor_shipping_rates_rate_non_negative",
+      sql`${table.rateCents} >= 0`,
+    ),
     check(
       "vendor_shipping_rates_delivery_days_ordered",
       sql`${table.minDeliveryDays} >= 0 AND ${table.maxDeliveryDays} >= ${table.minDeliveryDays}`,
@@ -462,7 +468,12 @@ export const categories = pgTable(
       .$onUpdate(() => new Date())
       .notNull(),
   },
-  (table) => [index("categories_parent_id_position_idx").on(table.parentId, table.position)],
+  (table) => [
+    index("categories_parent_id_position_idx").on(
+      table.parentId,
+      table.position,
+    ),
+  ],
 );
 
 export const products = pgTable(
@@ -537,7 +548,10 @@ export const productVariants = pgTable(
   (table) => [
     index("product_variants_product_id_idx").on(table.productId),
     /** Two vendors may legitimately use the same SKU string. */
-    uniqueIndex("product_variants_vendor_id_sku_idx").on(table.vendorId, table.sku),
+    uniqueIndex("product_variants_vendor_id_sku_idx").on(
+      table.vendorId,
+      table.sku,
+    ),
     /** Makes a variant whose vendor differs from its product unrepresentable. */
     foreignKey({
       columns: [table.productId, table.vendorId],
@@ -567,7 +581,10 @@ export const productImages = pgTable(
     createdAt: tstz("created_at").defaultNow().notNull(),
   },
   (table) => [
-    index("product_images_product_id_position_idx").on(table.productId, table.position),
+    index("product_images_product_id_position_idx").on(
+      table.productId,
+      table.position,
+    ),
   ],
 );
 
@@ -670,7 +687,10 @@ export const cartItems = pgTable(
   },
   (table) => [
     index("cart_items_cart_id_idx").on(table.cartId),
-    unique("cart_items_cart_id_variant_id_unique").on(table.cartId, table.variantId),
+    unique("cart_items_cart_id_variant_id_unique").on(
+      table.cartId,
+      table.variantId,
+    ),
     check("cart_items_quantity_positive", sql`${table.quantity} > 0`),
   ],
 );
@@ -714,8 +734,14 @@ export const orders = pgTable(
       .notNull(),
   },
   (table) => [
-    index("orders_user_id_placed_at_idx").on(table.userId, table.placedAt.desc()),
-    index("orders_status_placed_at_idx").on(table.status, table.placedAt.desc()),
+    index("orders_user_id_placed_at_idx").on(
+      table.userId,
+      table.placedAt.desc(),
+    ),
+    index("orders_status_placed_at_idx").on(
+      table.status,
+      table.placedAt.desc(),
+    ),
   ],
 );
 
@@ -744,7 +770,9 @@ export const vendorOrders = pgTable(
     commissionBps: integer("commission_bps").notNull(),
     commissionCents: integer("commission_cents").notNull(),
     vendorPayoutCents: integer("vendor_payout_cents").notNull(),
-    shippingRateSnapshot: jsonb("shipping_rate_snapshot").$type<ShippingRateSnapshot>(),
+    shippingRateSnapshot: jsonb(
+      "shipping_rate_snapshot",
+    ).$type<ShippingRateSnapshot>(),
     fulfilledAt: tstz("fulfilled_at"),
     cancelledAt: tstz("cancelled_at"),
     createdAt: tstz("created_at").defaultNow().notNull(),
@@ -754,7 +782,10 @@ export const vendorOrders = pgTable(
       .notNull(),
   },
   (table) => [
-    unique("vendor_orders_order_id_vendor_id_unique").on(table.orderId, table.vendorId),
+    unique("vendor_orders_order_id_vendor_id_unique").on(
+      table.orderId,
+      table.vendorId,
+    ),
     /** Referenced by the composite FK on `order_items`. */
     unique("vendor_orders_id_order_id_unique").on(table.id, table.orderId),
     index("vendor_orders_vendor_id_created_at_idx").on(
@@ -839,7 +870,9 @@ export const payments = pgTable(
       .notNull()
       .references(() => orders.id, { onDelete: "restrict" }),
     provider: text("provider").default("stripe").notNull(),
-    providerPaymentIntentId: text("provider_payment_intent_id").notNull().unique(),
+    providerPaymentIntentId: text("provider_payment_intent_id")
+      .notNull()
+      .unique(),
     amountCents: integer("amount_cents").notNull(),
     status: paymentStatus("status").notNull(),
     rawPayload: jsonb("raw_payload"),
@@ -901,7 +934,10 @@ export const vendorTransfers = pgTable(
     completedAt: tstz("completed_at"),
   },
   (table) => [
-    index("vendor_transfers_vendor_id_status_idx").on(table.vendorId, table.status),
+    index("vendor_transfers_vendor_id_status_idx").on(
+      table.vendorId,
+      table.status,
+    ),
     /** Keeps the payout sweeper's working set proportional to what is owed. */
     index("vendor_transfers_available_at_pending_idx")
       .on(table.availableAt)
@@ -959,7 +995,9 @@ export const refunds = pgTable(
       .notNull()
       .references(() => vendorOrders.id, { onDelete: "restrict" }),
     amountCents: integer("amount_cents").notNull(),
-    shippingRefundedCents: integer("shipping_refunded_cents").default(0).notNull(),
+    shippingRefundedCents: integer("shipping_refunded_cents")
+      .default(0)
+      .notNull(),
     reason: text("reason"),
     status: refundStatus("status").default("pending").notNull(),
     providerRefundId: text("provider_refund_id").unique(),
@@ -1030,7 +1068,9 @@ export const reviews = pgTable(
     userId: text("user_id")
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
-    orderId: uuid("order_id").references(() => orders.id, { onDelete: "set null" }),
+    orderId: uuid("order_id").references(() => orders.id, {
+      onDelete: "set null",
+    }),
     vendorOrderId: uuid("vendor_order_id").references(() => vendorOrders.id, {
       onDelete: "set null",
     }),
@@ -1048,7 +1088,10 @@ export const reviews = pgTable(
       .notNull(),
   },
   (table) => [
-    unique("reviews_user_id_product_id_unique").on(table.userId, table.productId),
+    unique("reviews_user_id_product_id_unique").on(
+      table.userId,
+      table.productId,
+    ),
     index("reviews_product_id_status_idx").on(table.productId, table.status),
     index("reviews_vendor_id_status_idx").on(table.vendorId, table.status),
     check("reviews_rating_range", sql`${table.rating} BETWEEN 1 AND 5`),
@@ -1073,8 +1116,15 @@ export const auditLog = pgTable(
     createdAt: tstz("created_at").defaultNow().notNull(),
   },
   (table) => [
-    index("audit_log_entity_idx").on(table.entityType, table.entityId, table.createdAt.desc()),
-    index("audit_log_vendor_id_created_at_idx").on(table.vendorId, table.createdAt.desc()),
+    index("audit_log_entity_idx").on(
+      table.entityType,
+      table.entityId,
+      table.createdAt.desc(),
+    ),
+    index("audit_log_vendor_id_created_at_idx").on(
+      table.vendorId,
+      table.createdAt.desc(),
+    ),
   ],
 );
 
@@ -1123,16 +1173,25 @@ export const vendorMemberRelations = relations(vendorMembers, ({ one }) => ({
   user: one(user, { fields: [vendorMembers.userId], references: [user.id] }),
 }));
 
-export const vendorApplicationRelations = relations(vendorApplications, ({ one }) => ({
-  user: one(user, { fields: [vendorApplications.userId], references: [user.id] }),
-}));
-
-export const vendorShippingRateRelations = relations(vendorShippingRates, ({ one }) => ({
-  vendor: one(vendors, {
-    fields: [vendorShippingRates.vendorId],
-    references: [vendors.id],
+export const vendorApplicationRelations = relations(
+  vendorApplications,
+  ({ one }) => ({
+    user: one(user, {
+      fields: [vendorApplications.userId],
+      references: [user.id],
+    }),
   }),
-}));
+);
+
+export const vendorShippingRateRelations = relations(
+  vendorShippingRates,
+  ({ one }) => ({
+    vendor: one(vendors, {
+      fields: [vendorShippingRates.vendorId],
+      references: [vendors.id],
+    }),
+  }),
+);
 
 export const addressRelations = relations(addresses, ({ one }) => ({
   user: one(user, { fields: [addresses.userId], references: [user.id] }),
@@ -1149,7 +1208,10 @@ export const categoryRelations = relations(categories, ({ one, many }) => ({
 }));
 
 export const productRelations = relations(products, ({ one, many }) => ({
-  vendor: one(vendors, { fields: [products.vendorId], references: [vendors.id] }),
+  vendor: one(vendors, {
+    fields: [products.vendorId],
+    references: [vendors.id],
+  }),
   category: one(categories, {
     fields: [products.categoryId],
     references: [categories.id],
@@ -1159,22 +1221,25 @@ export const productRelations = relations(products, ({ one, many }) => ({
   reviews: many(reviews),
 }));
 
-export const productVariantRelations = relations(productVariants, ({ one, many }) => ({
-  product: one(products, {
-    fields: [productVariants.productId],
-    references: [products.id],
+export const productVariantRelations = relations(
+  productVariants,
+  ({ one, many }) => ({
+    product: one(products, {
+      fields: [productVariants.productId],
+      references: [products.id],
+    }),
+    vendor: one(vendors, {
+      fields: [productVariants.vendorId],
+      references: [vendors.id],
+    }),
+    inventory: one(inventory, {
+      fields: [productVariants.id],
+      references: [inventory.variantId],
+    }),
+    images: many(productImages),
+    ledgerEntries: many(inventoryLedger),
   }),
-  vendor: one(vendors, {
-    fields: [productVariants.vendorId],
-    references: [vendors.id],
-  }),
-  inventory: one(inventory, {
-    fields: [productVariants.id],
-    references: [inventory.variantId],
-  }),
-  images: many(productImages),
-  ledgerEntries: many(inventoryLedger),
-}));
+);
 
 export const productImageRelations = relations(productImages, ({ one }) => ({
   product: one(products, {
@@ -1194,12 +1259,15 @@ export const inventoryRelations = relations(inventory, ({ one }) => ({
   }),
 }));
 
-export const inventoryLedgerRelations = relations(inventoryLedger, ({ one }) => ({
-  variant: one(productVariants, {
-    fields: [inventoryLedger.variantId],
-    references: [productVariants.id],
+export const inventoryLedgerRelations = relations(
+  inventoryLedger,
+  ({ one }) => ({
+    variant: one(productVariants, {
+      fields: [inventoryLedger.variantId],
+      references: [productVariants.id],
+    }),
   }),
-}));
+);
 
 export const cartRelations = relations(carts, ({ one, many }) => ({
   user: one(user, { fields: [carts.userId], references: [user.id] }),
@@ -1226,18 +1294,24 @@ export const orderRelations = relations(orders, ({ one, many }) => ({
   refunds: many(refunds),
 }));
 
-export const vendorOrderRelations = relations(vendorOrders, ({ one, many }) => ({
-  order: one(orders, { fields: [vendorOrders.orderId], references: [orders.id] }),
-  vendor: one(vendors, {
-    fields: [vendorOrders.vendorId],
-    references: [vendors.id],
+export const vendorOrderRelations = relations(
+  vendorOrders,
+  ({ one, many }) => ({
+    order: one(orders, {
+      fields: [vendorOrders.orderId],
+      references: [orders.id],
+    }),
+    vendor: one(vendors, {
+      fields: [vendorOrders.vendorId],
+      references: [vendors.id],
+    }),
+    items: many(orderItems),
+    shipments: many(shipments),
+    transfers: many(vendorTransfers),
+    balanceEntries: many(vendorBalanceEntries),
+    refunds: many(refunds),
   }),
-  items: many(orderItems),
-  shipments: many(shipments),
-  transfers: many(vendorTransfers),
-  balanceEntries: many(vendorBalanceEntries),
-  refunds: many(refunds),
-}));
+);
 
 export const orderItemRelations = relations(orderItems, ({ one }) => ({
   order: one(orders, { fields: [orderItems.orderId], references: [orders.id] }),
@@ -1262,32 +1336,38 @@ export const paymentRelations = relations(payments, ({ one }) => ({
   order: one(orders, { fields: [payments.orderId], references: [orders.id] }),
 }));
 
-export const vendorTransferRelations = relations(vendorTransfers, ({ one, many }) => ({
-  vendor: one(vendors, {
-    fields: [vendorTransfers.vendorId],
-    references: [vendors.id],
+export const vendorTransferRelations = relations(
+  vendorTransfers,
+  ({ one, many }) => ({
+    vendor: one(vendors, {
+      fields: [vendorTransfers.vendorId],
+      references: [vendors.id],
+    }),
+    vendorOrder: one(vendorOrders, {
+      fields: [vendorTransfers.vendorOrderId],
+      references: [vendorOrders.id],
+    }),
+    balanceEntries: many(vendorBalanceEntries),
   }),
-  vendorOrder: one(vendorOrders, {
-    fields: [vendorTransfers.vendorOrderId],
-    references: [vendorOrders.id],
-  }),
-  balanceEntries: many(vendorBalanceEntries),
-}));
+);
 
-export const vendorBalanceEntryRelations = relations(vendorBalanceEntries, ({ one }) => ({
-  vendor: one(vendors, {
-    fields: [vendorBalanceEntries.vendorId],
-    references: [vendors.id],
+export const vendorBalanceEntryRelations = relations(
+  vendorBalanceEntries,
+  ({ one }) => ({
+    vendor: one(vendors, {
+      fields: [vendorBalanceEntries.vendorId],
+      references: [vendors.id],
+    }),
+    vendorOrder: one(vendorOrders, {
+      fields: [vendorBalanceEntries.vendorOrderId],
+      references: [vendorOrders.id],
+    }),
+    transfer: one(vendorTransfers, {
+      fields: [vendorBalanceEntries.transferId],
+      references: [vendorTransfers.id],
+    }),
   }),
-  vendorOrder: one(vendorOrders, {
-    fields: [vendorBalanceEntries.vendorOrderId],
-    references: [vendorOrders.id],
-  }),
-  transfer: one(vendorTransfers, {
-    fields: [vendorBalanceEntries.transferId],
-    references: [vendorTransfers.id],
-  }),
-}));
+);
 
 export const refundRelations = relations(refunds, ({ one }) => ({
   order: one(orders, { fields: [refunds.orderId], references: [orders.id] }),
@@ -1305,13 +1385,22 @@ export const discountCodeRelations = relations(discountCodes, ({ one }) => ({
 }));
 
 export const reviewRelations = relations(reviews, ({ one }) => ({
-  product: one(products, { fields: [reviews.productId], references: [products.id] }),
-  vendor: one(vendors, { fields: [reviews.vendorId], references: [vendors.id] }),
+  product: one(products, {
+    fields: [reviews.productId],
+    references: [products.id],
+  }),
+  vendor: one(vendors, {
+    fields: [reviews.vendorId],
+    references: [vendors.id],
+  }),
   user: one(user, { fields: [reviews.userId], references: [user.id] }),
   order: one(orders, { fields: [reviews.orderId], references: [orders.id] }),
 }));
 
 export const auditLogRelations = relations(auditLog, ({ one }) => ({
   actor: one(user, { fields: [auditLog.actorUserId], references: [user.id] }),
-  vendor: one(vendors, { fields: [auditLog.vendorId], references: [vendors.id] }),
+  vendor: one(vendors, {
+    fields: [auditLog.vendorId],
+    references: [vendors.id],
+  }),
 }));
