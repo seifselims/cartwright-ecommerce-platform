@@ -41,21 +41,29 @@ Phase 0 (Foundation) of the §15 build plan, partially complete. What exists tod
 - **`src/db/schema.ts` is complete against §5.1 of the v1.2 spec** — 29 tables covering the four
   Better Auth tables, the full catalogue/cart/order model, all nine vendor tables, and the payout
   ledger. It typechecks, lints, and renders to valid SQL via `drizzle-kit generate`.
-- Better Auth in `lib/auth.ts`: email+password, `requireEmailVerification`, `schema` passed to
-  `drizzleAdapter`, and `role` / `stripeCustomerId` declared as `additionalFields` with
-  `input: false`. **None of §6.5 is wired yet** — no `secondaryStorage`, no `cookieCache`, no
-  `rateLimit`, no `storeSessionInDatabase`. That work is blocked on the Redis client.
-- Postgres 16 running as a hand-started container named `cartwright-postgres` on `localhost:5432`.
+- Better Auth in `src/auth.ts`, with §6.5 wired: `secondaryStorage` against the cache Redis under
+  an unversioned `cw:auth:` prefix (including the optional `getAndDelete` and `increment` hooks),
+  `cookieCache` at 5 minutes, `storeSessionInDatabase` + `preserveSessionInDatabase`, and
+  `rateLimit` on secondary storage at 100/60s. Still missing:
+  `emailVerification.sendVerificationEmail`, so `requireEmailVerification: true` means **nobody
+  can complete a sign-up yet** — that needs Nodemailer behind a BullMQ job (rule 6).
+- `src/redis.ts` — two lazily-connected ioredis singletons, `redis` (cache) and `queueRedis`
+  (BullMQ, `maxRetriesPerRequest: null`), guarded against hot-reload connection leaks.
+- The full backing stack in `docker-compose.yml` + `docker-compose.dev.yml`: Postgres, two Redis
+  instances, Meilisearch, MinIO (with a one-shot bucket init), Mailpit. `make up` brings it up
+  healthy.
+- **The first migration exists and has been applied.** `drizzle/0000_neat_firedrake.sql` is
+  recorded in `drizzle.__drizzle_migrations`. Schema changes are no longer free: use
+  `drizzle-kit generate` + `migrate` and follow the expand/contract rule in §10, row 14.
+  **Do not use `db:push` any more** — a push the migration files do not know about is drift.
 - All the runtime dependencies from §3 already installed (BullMQ, ioredis, Stripe, Nodemailer,
   Meilisearch, Sharp, AWS S3 SDK, Zod) plus the test tooling (Vitest, Playwright, Testcontainers,
   axe-core) — installed but **not yet configured or used**.
 
-Not yet started: Docker Compose, Redis client and cache layer, the scoped data-access layer from
-§5.4, health endpoints, CI, seed data, and every route beyond the scaffold page.
-
-**No migration exists yet** — `drizzle/` has never been generated, so the schema is still a free
-edit. Generating the first migration is the next natural step, and once it lands, schema changes
-stop being free and start following the expand/contract rule in §10, row 14.
+Not yet started: the cache abstraction and key registry from §6, the scoped data-access layer from
+§5.4, `/api/health` and `/api/ready`, CI, seed data, and every route beyond the scaffold page.
+Closing out Phase 0 needs the health endpoints, a Vitest config with one passing test, and a CI
+workflow ("CI green on an empty test" is the §15 acceptance bar).
 
 ## Stack and why
 
@@ -107,16 +115,15 @@ app/                 Next.js App Router routes (currently just the scaffold page
   (storefront)/      planned — customer-facing: /, /c, /p, /v/[vendor], cart, checkout, account
   (vendor)/vendor/   planned — seller dashboard
   (admin)/admin/     planned — platform back office
-lib/                 Cross-cutting app code — auth.ts lives here today
+src/                 All cross-cutting app code — auth.ts, redis.ts
 src/db/              Drizzle client (index.ts) and schema (schema.ts)
 docs/                The requirements spec and caching.md / scaling-challenges.md
-docs/adr/            Architecture Decision Records — 0001 is the multi-vendor pivot
-drizzle/             Generated migrations (does not exist yet)
+docs/adr/            Architecture Decision Records — 0001 multi-vendor, 0002 session staleness
+drizzle/             Generated migrations — 0000 is applied; never hand-edit an applied file
 ```
 
-Note the current inconsistency: shared code is split between `lib/` and `src/`. Pick one before
-the tree grows — `src/` for everything is the cleaner call — and move `lib/auth.ts` with it
-rather than adding new files to both.
+`src/` is the single home for shared code; `lib/` existed briefly and is gone. Do not reintroduce
+it.
 
 ## Commands
 
@@ -124,7 +131,7 @@ rather than adding new files to both.
 npm run dev                          # next dev
 npm run build                        # next build
 npm run lint                         # eslint
-npm run db:push                      # drizzle-kit push — sync schema.ts straight to the DB (dev only)
+npm run db:push                      # drizzle-kit push — DO NOT USE; migrations exist, this causes drift
 npx drizzle-kit generate             # emit a migration from schema.ts
 npx drizzle-kit migrate              # apply migrations to DATABASE_URL
 npx @better-auth/cli generate        # regenerate the Better Auth tables — do not hand-edit them
