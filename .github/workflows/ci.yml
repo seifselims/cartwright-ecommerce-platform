@@ -25,6 +25,12 @@ jobs:
           node-version: 22
           cache: npm
 
+      # The lockfile is written by npm 11, which records optional platform
+      # dependencies in a way npm 10 reads as incomplete — it fails `npm ci`
+      # with 27 "Missing: @esbuild/*" errors against a lockfile npm 11 accepts.
+      # Node 22 still ships npm 10, so pin the major that produced the lockfile.
+      - run: npm install -g npm@11
+
       - run: npm ci
 
       - name: Typecheck
