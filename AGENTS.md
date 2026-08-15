@@ -33,10 +33,12 @@ invalidation, or the test defeat the point.
 
 ## Current status
 
-Phase 0 (Foundation) of the §15 build plan, partially complete. What exists today:
+Phase 0 (Foundation) of the §15 build plan is **complete** — `make up` works and the CI workflow
+runs typecheck, lint, format, unit tests and build, verified green from a clean checkout on Linux.
+Phase 1 (Data & seed) is next. What exists today:
 
 - Next.js 16 App Router scaffold (`app/`) — still just the starter page, no route groups yet.
-  TypeScript `strict: true`, Tailwind v4, ESLint flat config.
+  TypeScript `strict: true`, Tailwind v4, ESLint flat config, Prettier.
 - Drizzle wired to Postgres (`src/db/index.ts`, `drizzle.config.ts`).
 - **`src/db/schema.ts` is complete against §5.1 of the v1.2 spec** — 29 tables covering the four
   Better Auth tables, the full catalogue/cart/order model, all nine vendor tables, and the payout
@@ -56,14 +58,40 @@ Phase 0 (Foundation) of the §15 build plan, partially complete. What exists tod
   recorded in `drizzle.__drizzle_migrations`. Schema changes are no longer free: use
   `drizzle-kit generate` + `migrate` and follow the expand/contract rule in §10, row 14.
   **Do not use `db:push` any more** — a push the migration files do not know about is drift.
+- **The §9 health endpoints exist.** `app/api/health/route.ts` is liveness — it returns
+  `{ status, version, uptime }` and deliberately touches **no** dependency, because Docker restarts
+  what fails it and a probe that pinged Postgres would turn one database blip into a restart loop
+  across every web container. `app/api/ready/route.ts` is readiness: Postgres, both Redis
+  instances and Meilisearch, checked in parallel, each racing a 2 s timeout, returning 503 and a
+  per-dependency breakdown if any is down. A stopped container hangs rather than refuses, so the
+  timeout is what keeps the probe answering inside its poll interval. Both are
+  `export const dynamic = "force-dynamic"` — without it Next prerenders them at build and `uptime`
+  freezes at whatever the builder saw. Verified against the live stack: stopping the cache Redis
+  gives 503 from `/api/ready` naming `redis` while `/api/health` stays 200, and it recovers on its
+  own when Redis returns.
+- **Vitest is configured** in `vitest.config.mts` (`.mts` because a `.ts` Vite config trips the
+  native config-loader warning). `include` is scoped to `src/**` and `tests/unit/**` so Playwright
+  specs under a future `e2e/` can never be collected by the wrong runner, and `passWithNoTests` is
+  `false` so a bad filter cannot look like a green run. `tests/unit/health.test.ts` asserts the §9
+  liveness contract.
+- **CI exists** at `.github/workflows/ci.yml`: typecheck → lint → format → test → build, on push
+  to `main` and every PR. The build step runs with placeholder env vars — if it ever starts needing
+  a live service, something is connecting at import time and the `lazyConnect` guard in
+  `src/redis.ts` has been broken. Two traps already caught here, both invisible locally:
+  the lockfile is npm 11's and **npm 10 rejects it** with 27 `Missing: @esbuild/*` errors, so CI
+  installs `npm@11` before `npm ci` (Node 22 still ships npm 10); and `tsc` alone fails on a clean
+  checkout with `Cannot find name 'LayoutProps'` because that type lives in `.next/types`, so
+  `typecheck` runs `next typegen` first.
 - All the runtime dependencies from §3 already installed (BullMQ, ioredis, Stripe, Nodemailer,
-  Meilisearch, Sharp, AWS S3 SDK, Zod) plus the test tooling (Vitest, Playwright, Testcontainers,
-  axe-core) — installed but **not yet configured or used**.
+  Meilisearch, Sharp, AWS S3 SDK, Zod). Of the test tooling, **Vitest is configured**; Playwright,
+  Testcontainers and axe-core are installed but not yet configured or used.
 
 Not yet started: the cache abstraction and key registry from §6, the scoped data-access layer from
-§5.4, `/api/health` and `/api/ready`, CI, seed data, and every route beyond the scaffold page.
-Closing out Phase 0 needs the health endpoints, a Vitest config with one passing test, and a CI
-workflow ("CI green on an empty test" is the §15 acceptance bar).
+§5.4, seed data, and every route beyond the scaffold page and the two health endpoints.
+
+Phase 1's acceptance bar is `make seed` populating a browsable multi-vendor database — 8 vendors,
+500 products, 1,500 variants, 50k orders — with duplicate-SKU and overlapping-category fixtures,
+plus the §5.4 scoped data-access layer.
 
 ## Stack and why
 
@@ -111,15 +139,19 @@ These come from the spec and apply to every change:
 ## Repo layout
 
 ```
-app/                 Next.js App Router routes (currently just the scaffold page)
+app/                 Next.js App Router routes (the scaffold page plus /api/health, /api/ready)
+  api/health/        Liveness — no dependencies, never fails on a dependency outage
+  api/ready/         Readiness — db + both Redis + search, 503 when any is down
   (storefront)/      planned — customer-facing: /, /c, /p, /v/[vendor], cart, checkout, account
   (vendor)/vendor/   planned — seller dashboard
   (admin)/admin/     planned — platform back office
 src/                 All cross-cutting app code — auth.ts, redis.ts
 src/db/              Drizzle client (index.ts) and schema (schema.ts)
+tests/unit/          Vitest unit tests (§11.1). Integration tests get their own config in Phase 1
 docs/                The requirements spec and caching.md / scaling-challenges.md
 docs/adr/            Architecture Decision Records — 0001 multi-vendor, 0002 session staleness
 drizzle/             Generated migrations — 0000 is applied; never hand-edit an applied file
+.github/workflows/   CI
 ```
 
 `src/` is the single home for shared code; `lib/` existed briefly and is gone. Do not reintroduce
@@ -130,23 +162,34 @@ it.
 ```bash
 npm run dev                          # next dev
 npm run build                        # next build
-npm run lint                         # eslint
+npm run lint                         # eslint --max-warnings 0 (§11.6 gates on zero warnings)
+npm run typecheck                    # tsc --noEmit
+npm run format                       # prettier --write .
+npm run format:check                 # prettier --check . — the CI gate
+npm test                             # vitest run (unit only)
+npm run test:watch                   # vitest
 npm run db:push                      # drizzle-kit push — DO NOT USE; migrations exist, this causes drift
 npx drizzle-kit generate             # emit a migration from schema.ts
 npx drizzle-kit migrate              # apply migrations to DATABASE_URL
 npx @better-auth/cli generate        # regenerate the Better Auth tables — do not hand-edit them
 ```
 
-A `Makefile` (`make up`, `make down`, `make seed`, `make test`, `make load`, `make logs`,
-`make reconcile`) is required by §12.4 and does not exist yet; add targets there as the stack
-comes together. `make reconcile` asserts that every vendor balance equals its ledger sum and
-every order's split reconciles to the captured amount — it is a definition-of-done item (§17).
+Prettier ignores `docs/` and `*.md` (the spec and the ADRs are hand-wrapped prose that Prettier
+would reflow) and `drizzle/` (reformatting an applied migration changes its bytes).
+
+The `Makefile` has `up`, `down`, `logs`, `ps`, `restart`, `nuke`, `test`, and `check` — where
+`make check` runs the whole CI sequence locally, in CI's order. §12.4 also requires `make seed`,
+`make load` and `make reconcile`; add them as the phases that make them meaningful arrive.
+`make reconcile` asserts that every vendor balance equals its ledger sum and every order's split
+reconciles to the captured amount — it is a definition-of-done item (§17).
 
 ## Environment
 
-`.env` is gitignored; `.env.example` must document **every** variable. Currently only
-`DATABASE_URL`, `BETTER_AUTH_SECRET`, and `BETTER_AUTH_URL` are defined — extend both files
-together whenever a new service is wired in.
+`.env` is gitignored; `.env.example` must document **every** variable — extend both files together
+whenever a new service is wired in. Defined today: Postgres (`POSTGRES_*`, `DATABASE_URL`), Redis
+(`REDIS_URL`, `QUEUE_REDIS_URL`), Better Auth (`BETTER_AUTH_SECRET`, `BETTER_AUTH_URL`),
+Meilisearch (`MEILI_MASTER_KEY`, `MEILI_HOST`), object storage (`S3_*`) and email (`SMTP_*`,
+`EMAIL_FROM`). Nothing for Stripe yet.
 
 Stripe needs **two** webhook signing secrets, not one: `STRIPE_WEBHOOK_SECRET` for platform
 events and `STRIPE_CONNECT_WEBHOOK_SECRET` for `account.updated` on connected accounts. They are
@@ -172,5 +215,14 @@ compose file.
   used as a full session management or authorization solution", which is the same conclusion §5.4
   reaches from the other direction: putting a route under `/vendor` organizes code, it does not
   protect anything. The real check is the scoped data-access layer.
+- **A green local run is not evidence CI will pass.** `make check` reuses an installed
+  `node_modules` and a warm `.next/`; CI starts from `npm ci` on a bare Linux checkout, which is
+  what exposed both of the traps above. Before claiming CI is green, either push and read the run,
+  or reproduce it properly:
+  `docker run --rm -v "$PWD":/app -w /app node:22-slim sh -c "npm i -g npm@11 && npm ci && npm run typecheck"`.
+- **Liveness and readiness answer different questions and must not be merged.** Failing liveness
+  restarts a container; failing readiness pulls it out of the load balancer. Never add a dependency
+  check to `/api/health` — that is how a single Redis blip becomes a fleet-wide restart loop. New
+  dependencies go in `/api/ready`, each with its own timeout.
 - Decisions that a reviewer would question belong in `docs/adr/` as one-page
   context / decision / consequences records — not in code comments.
