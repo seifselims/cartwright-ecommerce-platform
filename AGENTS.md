@@ -108,14 +108,42 @@ Phase 1 (Data & seed) is next. What exists today:
     `owner@<vendor-slug>.test` / `admin@northgatesupply.test` work with `SEED_PASSWORD`
     (`password123` by default).
 
-Not yet started: the cache abstraction and key registry from §6, the scoped data-access layer from
-§5.4, and every route beyond the scaffold page and the two health endpoints.
+- **The §5.4 scoped data-access layer exists** in `src/db/scoped.ts`, with `src/vendor-context.ts`
+  as its Next.js entry point. `forVendor(user, slug)` resolves the acting vendor from
+  `vendor_members` and returns a `ScopedDb` whose every method closes over that vendor id — **no
+  method takes a vendor id, so no call site can pass the wrong one**, which is the whole design.
+  Covers products, variants, inventory, orders, payouts, shipping, reviews, profile and members.
+  Points worth knowing before extending it:
+  - **The URL slug is not authority.** It selects which of the caller's own memberships to act
+    under and is then verified; a slug you have no membership for is a 404, identical to one that
+    does not exist. Cross-vendor reads *and writes* return `NotFoundError`, never 403 — a write
+    matching zero rows throws rather than silently no-opping.
+  - **`inventory` has no `vendor_id` column**, so it is scoped by joining `product_variants`. This
+    is exactly the indirection a hand-written handler gets wrong: `WHERE variant_id = $1` looks
+    complete and silently accepts another vendor's variant.
+  - **Roles are ranked** (`staff` 1, `manager` 2, `owner` 3) and checked by `#require`. Money and
+    shipping are `manager`+, members and settings are `owner`-only, per the §7.1 route table.
+  - `context` returns a **copy** of the acting context. It used to hand back the live object, which
+    let a caller cast away `Readonly` and rewrite `role` — a unit test caught it; do not
+    "simplify" it back.
+  - Platform admins may act for any vendor at `owner` level, flagged `viaPlatformAdmin` for the
+    audit trail, and keep access to suspended vendors (whose own members lose it). Rule 15 still
+    holds: that is `user.role === "admin"`, never a `vendor` role.
+  - `requireVendor(slug)` in `src/vendor-context.ts` is what a page calls — it reads the session
+    and converts `NotFoundError` to Next's `notFound()`. There is no `ForbiddenError` helper on
+    purpose: Next's `forbidden()` needs `experimental.authInterrupts`, and an experimental flag is
+    a poor trade for a try/catch. Prefer not rendering what the role cannot reach.
 
-**Phase 1 is therefore half done.** `make seed` clears its half of the acceptance bar; the §5.4
-scoped data-access layer is the remaining half. Build it before Phase 2 starts adding `/vendor`
-routes — its cost scales with the number of routes that would need retrofitting, and there are
-currently none. §11.3 test 22 enumerates routes from the router and fails any new one that is not
-scoped, which only works if there is a single chokepoint to enumerate against.
+Not yet started: the cache abstraction and key registry from §6, and every route beyond the
+scaffold page and the two health endpoints.
+
+**Phase 1 is functionally complete, minus its integration tests.** Both halves of the acceptance
+bar are met — `make seed`, and the scoped layer. What remains before Phase 2 is the §5.4
+acceptance *criterion*: §11.3 tests 22 and 23 on Testcontainers, plus the lint rule or test that
+greps for raw table access in `/vendor` handlers. Test 22 enumerates routes from the router so a
+new unscoped route fails until it goes through `forVendor`; it needs the integration config that
+does not exist yet, and there are no `/vendor` routes to enumerate until Phase 2 adds them. Write
+it as Phase 2's first move, not its last.
 
 ## Stack and why
 
@@ -169,8 +197,10 @@ app/                 Next.js App Router routes (the scaffold page plus /api/heal
   (storefront)/      planned — customer-facing: /, /c, /p, /v/[vendor], cart, checkout, account
   (vendor)/vendor/   planned — seller dashboard
   (admin)/admin/     planned — platform back office
-src/                 All cross-cutting app code — auth.ts, redis.ts
-src/db/              Drizzle client (index.ts) and schema (schema.ts)
+src/                 All cross-cutting app code — auth.ts, redis.ts, vendor-context.ts
+                     (requireVendor: the one call a /vendor page makes)
+src/db/              Drizzle client (index.ts), schema (schema.ts), scoped.ts (§5.4 —
+                     every vendor-scoped query goes through it; see rule 12)
 src/db/seed/         `make seed` — index.ts orchestrates; split.ts is the §8.3 money split
                      (shared with Phase 6 checkout), factories.ts and data.ts build rows,
                      random.ts is the seeded PRNG that makes the dataset reproducible
